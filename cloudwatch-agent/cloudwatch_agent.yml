@@ -1,0 +1,68 @@
+---
+
+- hosts: xxx.xxx.xxx.xxx
+  remote_user: root
+  gather_facts: true
+  tasks:
+    - name: Check if Cloudwatch Agent is Installed Already
+      command: status amazon-cloudwatch-agent
+      register: init_status_result
+      ignore_errors: yes
+
+    - debug:
+      var: init_status_result.stderr
+      verbosity: 2
+
+    - name: Create Directory for Downloading Cloudwatch Agent .zip
+      file:
+        path: /opt/aws/amazon-cloudwatch-zip
+        state: directory
+        owner: root
+        group: root
+        mode: 0755
+        recurse: no
+      when: init_status_result.stderr | search("Unknown job")
+
+    - name: Download Latest Version of Amazon Cloudwatch Agent
+      get_url:
+        url: "https://s3.amazonaws.com/amazoncloudwatch-agent/linux/amd64/latest/AmazonCloudWatchAgent.zip"
+        dest: /opt/aws/amazon-cloudwatch-zip/AmazonCloudWatchAgent.zip
+        mode: 0755
+      when: init_status_result.stderr | search("Unknown job")
+
+    - name: Unzip Cloudwatch Download File
+      unarchive:
+        remote_src: yes
+        src: /opt/aws/amazon-cloudwatch-zip/AmazonCloudWatchAgent.zip
+        dest: /opt/aws/amazon-cloudwatch-zip
+      when: init_status_result.stderr | search("Unknown job")
+
+    - name: Execute the Installation Script
+      command: /opt/aws/amazon-cloudwatch-zip/install.sh
+      args:
+        chdir: /opt/aws/amazon-cloudwatch-zip
+      when: init_status_result.stderr | search("Unknown job")
+
+    - name: Transfer Cloudwatch Common Configuration(Proxies...) File
+      copy:
+        src: /files/common-config.toml
+        dest: /opt/aws/amazon-cloudwatch-agent/etc
+        owner: ec2-user
+        group: ec2-user
+        mode: 0755
+      when: init_status_result.stderr | search("Unknown job")
+
+    - name: Transfer Cloudwatch Configuration File
+      copy:
+        src: /files/amazon-cloudwatch-agent.json
+        dest: /opt/aws/amazon-cloudwatch-agent/etc
+        owner: ec2-user
+        group: ec2-user
+        mode: 0755
+
+    - name: Stop Amazon Cloudwatch Agent
+      command: stop amazon-cloudwatch-agent
+      ignore_errors: yes
+
+    - name: Start Amazon Cloudwatch Agent
+      command: start amazon-cloudwatch-agent
